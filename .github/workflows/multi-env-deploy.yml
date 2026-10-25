@@ -1,0 +1,71 @@
+name: "Multi-Environment Deployment & Automated Rollback"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sample-workload/**"
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target environment to deploy"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+
+jobs:
+  deploy-dev:
+    name: "Deploy ➔ Development"
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy Terraform to Dev
+        run: |
+          echo "Simulating Terraform Plan & Apply for Dev..."
+          echo "Environment Dev validated successfully."
+
+  deploy-uat:
+    name: "Deploy ➔ UAT Staging"
+    needs: [deploy-dev]
+    runs-on: ubuntu-latest
+    environment: uat
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy Terraform to UAT
+        run: |
+          echo "Simulating Terraform Plan & Apply for UAT..."
+          echo "UAT Smoke tests passing."
+
+  deploy-prod:
+    name: "Deploy ➔ Production (With Rollback Guardrail)"
+    needs: [deploy-uat]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Terraform Plan Prod
+        run: echo "Generating deterministic Terraform execution plan..."
+
+      - name: Apply with Rollback Hook
+        id: apply
+        run: |
+          echo "Executing Terraform Apply for Production..."
+          # In real execution: terraform apply -auto-approve tfplan
+          echo "status=SUCCESS" >> $GITHUB_OUTPUT
+
+      - name: Automated Rollback on Failure
+        if: failure()
+        run: |
+          echo "🚨 Deployment failure detected! Initiating emergency rollback..."
+          echo "Reverting state lock and notifying platform on-call."

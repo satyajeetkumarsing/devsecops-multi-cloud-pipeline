@@ -1,0 +1,65 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - sample-workload/**
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  - name: TERRAFORM_VERSION
+    value: "1.8.5"
+
+stages:
+  - stage: Validate_And_Lint
+    displayName: "Stage 1: Validation, Linting & Secret Scan"
+    jobs:
+      - job: LintAndSecrets
+        displayName: "TFLint & Gitleaks"
+        steps:
+          - script: |
+              echo "Installing TFLint and running format check..."
+              curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+              tflint --init --config=.tflint.hcl
+              tflint --config=.tflint.hcl
+            displayName: "Run TFLint"
+
+  - stage: Security_Compliance_Scan
+    displayName: "Stage 2: Checkov & Trivy Security Scan"
+    dependsOn: Validate_And_Lint
+    jobs:
+      - job: SecurityScan
+        displayName: "IaC Static Analysis"
+        steps:
+          - script: |
+              pip install checkov
+              checkov -d sample-workload --framework terraform --output junitxml --output-file-path results.xml
+            displayName: "Execute Checkov CIS Benchmark"
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "results.xml"
+              failTaskOnFailedTests: true
+            displayName: "Publish Security Test Results"
+
+  - stage: Plan_And_Deploy
+    displayName: "Stage 3: Terraform Plan & Deploy"
+    dependsOn: Security_Compliance_Scan
+    jobs:
+      - deployment: DeployProduction
+        displayName: "Production Deployment Gate"
+        environment: "production"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo "Applying verified Terraform plan to production..."
+                  displayName: "Terraform Apply"

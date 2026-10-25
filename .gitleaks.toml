@@ -1,0 +1,22 @@
+title = "Enterprise Multi-Cloud Secret Detection"
+
+[extend]
+useDefault = true
+
+[[rules]]
+description = "Azure Storage Account Key / SAS Token"
+id = "azure-storage-key"
+regex = '''(?i)(DefaultEndpointsProtocol=https;AccountName=[a-z0-9]+;AccountKey=[a-zA-Z0-9+/=]{86,88})'''
+keywords = ["AccountKey", "DefaultEndpointsProtocol"]
+
+[[rules]]
+description = "AWS Access Key ID"
+id = "aws-access-key-id"
+regex = '''(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'''
+keywords = ["AKIA", "ASIA"]
+
+[[rules]]
+description = "GCP Service Account Private Key"
+id = "gcp-service-account-key"
+regex = '''(?i)\"type\": \"service_account\",\s+\"project_id\"'''
+keywords = ["service_account"]

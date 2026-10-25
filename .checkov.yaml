@@ -1,0 +1,11 @@
+branch: main
+framework:
+  - terraform
+compact: true
+quiet: false
+skip-path:
+  - tests/
+  - .terraform/
+soft-fail: false
+download-external-modules: true
+evaluate-variables: true

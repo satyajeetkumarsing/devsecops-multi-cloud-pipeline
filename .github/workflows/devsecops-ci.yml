@@ -1,0 +1,134 @@
+name: "Enterprise Multi-Cloud DevSecOps CI Pipeline"
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "**/*.tf"
+      - "**/*.hcl"
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - "**/*.tf"
+      - "**/*.hcl"
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  lint-and-validate:
+    name: "1. Format & Lint (TFLint)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.51.1
+
+      - name: Initialize TFLint
+        run: tflint --init --config=.tflint.hcl
+
+      - name: Run TFLint Inspection
+        run: tflint -f compact --config=.tflint.hcl
+
+  secrets-detection:
+    name: "2. Secret Scanning (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Secret Detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  security-compliance:
+    name: "3. IaC Security Scan (Checkov & tfsec)"
+    runs-on: ubuntu-latest
+    needs: [lint-and-validate]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov Static Analysis (CIS Benchmarks)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+          soft_fail: false
+
+      - name: Upload Checkov SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+
+      - name: Run tfsec Security Scanner
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: true
+
+  vulnerability-scan:
+    name: "4. Vulnerability & Misconfig (Trivy)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Config Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+
+  finops-cost-projection:
+    name: "5. FinOps Cost Estimation (Infracost)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout Base Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Baseline Infracost JSON
+        run: infracost breakdown --path=sample-workload --format=json --out-file=/tmp/infracost-base.json || true
+
+      - name: Checkout PR Branch
+        uses: actions/checkout@v4
+
+      - name: Generate PR Infracost Diff
+        run: infracost diff --path=sample-workload --format=json --compare-to=/tmp/infracost-base.json --out-file=/tmp/infracost.json || true
+
+      - name: Post Infracost PR Comment
+        uses: infracost/actions/comment@v5
+        if: env.INFRACOST_API_KEY != ''
+        with:
+          path: /tmp/infracost.json
+          behavior: update
